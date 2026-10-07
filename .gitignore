@@ -1,14 +1,30 @@
+# dependencies
 node_modules
-.vercel
-.grok
-.tanstack
-artifacts
-screenshots
+
+# build and generated output
 dist
+dist-ssr
+.output
+.nitro
+.vercel
+.tanstack
+.cache
+coverage
+*.tsbuildinfo
+
+# local env
 .env
 .env.*
 !.env.example
-*.log
-.DS_Store
+*.local
+
+# sandbox and editor leftovers
+.grok
+artifacts
+screenshots
 .project_id
 .node_modules.lock
+
+# logs and OS
+*.log
+.DS_Store
