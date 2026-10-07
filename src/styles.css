@@ -52,6 +52,36 @@
   border: 0;
 }
 
+.test-controls {
+  position: absolute;
+  z-index: 3;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  gap: 10px;
+}
+
+.test-controls button {
+  flex: 1;
+  min-height: 54px;
+  margin: 0;
+  padding: 14px 10px;
+  border: 1px solid rgba(243, 241, 236, 0.22);
+  border-radius: 14px;
+  background: rgba(12, 13, 16, 0.88);
+  color: #f4f1ea;
+  font: 600 15px/1.2 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  touch-action: manipulation;
+}
+
+.test-controls button.is-on {
+  border-color: rgba(125, 255, 178, 0.7);
+  color: #d9ffe8;
+}
+
 .scene-error {
   position: absolute;
   inset: 0;

@@ -2,9 +2,10 @@ import { frameGameCamera } from "@/game/camera/frame-camera";
 import { createLookControls } from "@/game/camera/look-controls";
 import { CAMERA } from "@/game/config/camera";
 import { LIGHTS } from "@/game/config/presentation";
+import { createTablePhysics } from "@/game/physics";
 import { useDebugEnabled } from "@/game/ui/debug";
 import { DebugOverlay } from "@/game/ui/DebugOverlay";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
   Mesh,
@@ -23,7 +24,9 @@ import { logSceneStandardOnce } from "./log-standard";
  */
 export function GameViewport() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const physicsRef = useRef<ReturnType<typeof createTablePhysics> | null>(null);
   const debug = useDebugEnabled();
+  const [collidersOn, setCollidersOn] = useState(true);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,6 +49,24 @@ export function GameViewport() {
     const scene = createGameScene(debug, () => draw());
     const camera = new PerspectiveCamera(CAMERA.fov, 1, CAMERA.near, CAMERA.far);
     const look = createLookControls(canvas, () => draw());
+    const physics = createTablePhysics(scene, camera, canvas);
+    physicsRef.current = physics;
+
+    let simFrame = 0;
+    let lastTime = performance.now();
+    const pump = (now: number) => {
+      simFrame = 0;
+      const dt = Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+      const active = physics.step(dt);
+      draw();
+      if (active) simFrame = requestAnimationFrame(pump);
+    };
+    physics.setOnActive(() => {
+      if (simFrame) return;
+      lastTime = performance.now();
+      simFrame = requestAnimationFrame(pump);
+    });
 
     draw = () => {
       const width = canvas.clientWidth;
@@ -70,6 +91,9 @@ export function GameViewport() {
 
     return () => {
       observer.disconnect();
+      if (simFrame) cancelAnimationFrame(simFrame);
+      physics.dispose();
+      physicsRef.current = null;
       look.dispose();
       scene.traverse((object) => {
         const mesh = object as Mesh;
@@ -85,6 +109,22 @@ export function GameViewport() {
   return (
     <>
       <canvas ref={canvasRef} className="game-canvas" />
+      <div className="test-controls">
+        <button type="button" onClick={() => physicsRef.current?.resetBall()}>
+          Reset ball
+        </button>
+        <button
+          type="button"
+          aria-pressed={collidersOn}
+          className={collidersOn ? "is-on" : undefined}
+          onClick={() => {
+            const visible = physicsRef.current?.toggleColliders();
+            if (typeof visible === "boolean") setCollidersOn(visible);
+          }}
+        >
+          Debug colliders
+        </button>
+      </div>
       <DebugOverlay />
     </>
   );

@@ -51,7 +51,6 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   let lastX = 0;
   let lastY = 0;
   let travel = 0;
-  let lastTap = 0;
 
   const held = { left: false, right: false, up: false, down: false };
 
@@ -230,7 +229,7 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
     lastY = event.clientY;
     if (dx === 0 && dy === 0) return;
     travel += Math.hypot(dx, dy);
-    if (travel < 5 && !dragTurns) return;
+    if (travel < 28 && !dragTurns) return;
     if (dragTurns) turn(dx, dy);
     else {
       pendingX += dx;
@@ -250,28 +249,10 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
       lastY = point.y;
       travel = 0;
     } else {
-      const tapped = travel < 12;
       pinch = null;
       dragId = null;
       dragTurns = false;
       canvas.classList.remove("is-looking");
-      if (tapped) {
-        const now = performance.now();
-        if (now - lastTap < 320) {
-          moved = false;
-          lastTap = 0;
-          sphericalDelta.set(0, 0, 0);
-          panOffset.set(0, 0, 0);
-          pendingX = 0;
-          pendingY = 0;
-          scale = 1;
-          onChange();
-        } else {
-          lastTap = now;
-        }
-      } else {
-        lastTap = 0;
-      }
     }
     try {
       canvas.releasePointerCapture(event.pointerId);
