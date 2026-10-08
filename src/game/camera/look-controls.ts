@@ -1,5 +1,6 @@
 import { CAMERA } from "@/game/config/camera";
 import { ROOM_LAYOUT } from "@/game/config/room";
+import { isPointerClaimed } from "@/game/input/pointer-claim";
 import { MathUtils, PerspectiveCamera, Spherical, Vector3 } from "three";
 import { publishCameraPose } from "./camera-pose";
 
@@ -37,6 +38,7 @@ function pinchOf(points: Map<number, { x: number; y: number }>): Pinch | null {
 
 export function createLookControls(canvas: HTMLCanvasElement, onChange: () => void) {
   let ready = false;
+  let enabled = true;
   let moved = false;
   let scale = 1;
   let raf = 0;
@@ -184,7 +186,8 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   }
 
   function onPointerDown(event: PointerEvent) {
-    if (!ready) return;
+    if (!enabled || !ready) return;
+    if (isPointerClaimed(event.pointerId)) return;
     if ((event.target as HTMLElement).closest("button")) return;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.classList.add("is-looking");
@@ -207,6 +210,10 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   }
 
   function onPointerMove(event: PointerEvent) {
+    if (!enabled || isPointerClaimed(event.pointerId)) {
+      pointers.delete(event.pointerId);
+      return;
+    }
     if (!ready || !pointers.has(event.pointerId)) return;
     if (event.cancelable) event.preventDefault();
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -239,6 +246,14 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   }
 
   function onPointerUp(event: PointerEvent) {
+    if (!enabled) {
+      try {
+        canvas.releasePointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     pointers.delete(event.pointerId);
     if (pointers.size === 1) {
       pinch = null;
@@ -262,6 +277,7 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   }
 
   function onWheel(event: WheelEvent) {
+    if (!enabled) return;
     event.preventDefault();
     scale *= Math.exp(event.deltaY * 0.0011);
     nudge();
@@ -272,6 +288,7 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    if (!enabled) return;
     if (event.repeat) return;
     if (event.key === "ArrowLeft") held.left = true;
     else if (event.key === "ArrowRight") held.right = true;
@@ -283,6 +300,7 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   }
 
   function onKeyUp(event: KeyboardEvent) {
+    if (!enabled) return;
     if (event.key === "ArrowLeft") held.left = false;
     else if (event.key === "ArrowRight") held.right = false;
     else if (event.key === "ArrowUp") held.up = false;
@@ -301,6 +319,35 @@ export function createLookControls(canvas: HTMLCanvasElement, onChange: () => vo
   return {
     hasMoved: () => moved,
     setBasis,
+    setEnabled(next: boolean) {
+      if (enabled === next) return;
+      enabled = next;
+      if (next) return;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      for (const id of pointers.keys()) {
+        try {
+          canvas.releasePointerCapture(id);
+        } catch {
+          /* ignore */
+        }
+      }
+      pointers.clear();
+      pinch = null;
+      dragId = null;
+      dragTurns = false;
+      travel = 0;
+      pendingX = 0;
+      pendingY = 0;
+      sphericalDelta.set(0, 0, 0);
+      panOffset.set(0, 0, 0);
+      scale = 1;
+      held.left = false;
+      held.right = false;
+      held.up = false;
+      held.down = false;
+      canvas.classList.remove("is-looking");
+    },
     apply(next: PerspectiveCamera) {
       camera = next;
       if (!ready) return;

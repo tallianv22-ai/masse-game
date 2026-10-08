@@ -1,10 +1,14 @@
 import { frameGameCamera } from "@/game/camera/frame-camera";
+import { createGameplayCamera } from "@/game/camera/gameplay-camera";
 import { createLookControls } from "@/game/camera/look-controls";
+import { getCameraMode, subscribeCameraMode, toggleCameraMode, useCameraMode } from "@/game/camera/camera-mode";
 import { CAMERA } from "@/game/config/camera";
 import { LIGHTS } from "@/game/config/presentation";
+import { createShotControls } from "@/game/cue/shot-controls";
 import { createTablePhysics } from "@/game/physics";
 import { useDebugEnabled } from "@/game/ui/debug";
 import { DebugOverlay } from "@/game/ui/DebugOverlay";
+import { MasseHud } from "@/game/ui/MasseHud";
 import { useEffect, useRef, useState } from "react";
 import {
   ACESFilmicToneMapping,
@@ -26,6 +30,7 @@ export function GameViewport() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const physicsRef = useRef<ReturnType<typeof createTablePhysics> | null>(null);
   const debug = useDebugEnabled();
+  const cameraMode = useCameraMode();
   const [collidersOn, setCollidersOn] = useState(true);
 
   useEffect(() => {
@@ -49,7 +54,9 @@ export function GameViewport() {
     const scene = createGameScene(debug, () => draw());
     const camera = new PerspectiveCamera(CAMERA.fov, 1, CAMERA.near, CAMERA.far);
     const look = createLookControls(canvas, () => draw());
+    const gameplay = createGameplayCamera(canvas, () => draw());
     const physics = createTablePhysics(scene, camera, canvas);
+    const shot = createShotControls(scene, camera, canvas, physics, () => draw());
     physicsRef.current = physics;
 
     let simFrame = 0;
@@ -75,11 +82,16 @@ export function GameViewport() {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
-      if (!look.hasMoved()) {
-        frameGameCamera(camera, camera.aspect);
-        look.setBasis(camera);
+      if (getCameraMode() === "gameplay") {
+        gameplay.apply(camera);
+      } else {
+        if (!look.hasMoved()) {
+          frameGameCamera(camera, camera.aspect);
+          look.setBasis(camera);
+        }
+        look.apply(camera);
       }
-      look.apply(camera);
+      shot.present();
       renderer.render(scene, camera);
     };
 
@@ -88,13 +100,23 @@ export function GameViewport() {
 
     const observer = new ResizeObserver(() => draw());
     observer.observe(canvas);
+    const unsubscribeMode = subscribeCameraMode(() => {
+      const gameplayOn = getCameraMode() === "gameplay";
+      look.setEnabled(!gameplayOn);
+      gameplay.setEnabled(gameplayOn);
+      if (gameplayOn) gameplay.engage(camera);
+      draw();
+    });
 
     return () => {
       observer.disconnect();
+      unsubscribeMode();
       if (simFrame) cancelAnimationFrame(simFrame);
       physics.dispose();
       physicsRef.current = null;
       look.dispose();
+      gameplay.dispose();
+      shot.dispose();
       scene.traverse((object) => {
         const mesh = object as Mesh;
         mesh.geometry?.dispose();
@@ -109,7 +131,15 @@ export function GameViewport() {
   return (
     <>
       <canvas ref={canvasRef} className="game-canvas" />
-      <div className="test-controls">
+      <div className="test-controls" data-touch="ui">
+        <button
+          type="button"
+          className={cameraMode === "gameplay" ? "spans is-on" : "spans"}
+          aria-pressed={cameraMode === "gameplay"}
+          onClick={() => toggleCameraMode()}
+        >
+          {cameraMode === "gameplay" ? "Gameplay camera" : "Development camera"}
+        </button>
         <button type="button" onClick={() => physicsRef.current?.resetBall()}>
           Reset ball
         </button>
@@ -125,6 +155,7 @@ export function GameViewport() {
           Debug colliders
         </button>
       </div>
+      <MasseHud />
       <DebugOverlay />
     </>
   );

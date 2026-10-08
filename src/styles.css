@@ -59,6 +59,7 @@
   right: 12px;
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -75,6 +76,10 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   touch-action: manipulation;
+}
+
+.test-controls button.spans {
+  flex: 1 1 100%;
 }
 
 .test-controls button.is-on {
@@ -110,6 +115,84 @@
   color: #e7e2d8;
   font: 10px/1.45 ui-monospace, sfmono-regular, menlo, consolas, monospace;
   letter-spacing: 0.01em;
+  pointer-events: none;
+  white-space: pre;
+}
+
+.masse-tools {
+  position: absolute;
+  z-index: 4;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.masse-tools button {
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 16px;
+  border: 1px solid rgba(243, 241, 236, 0.28);
+  border-radius: 14px;
+  background: rgba(12, 13, 16, 0.9);
+  color: #f4f1ea;
+  font: 700 14px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  touch-action: manipulation;
+}
+
+.masse-tools button.is-on {
+  border-color: rgba(255, 92, 74, 0.85);
+  color: #ffd2cb;
+}
+
+.masse-pad {
+  position: absolute;
+  z-index: 4;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  border: 2px solid rgba(244, 241, 234, 0.72);
+  background:
+    radial-gradient(circle at 38% 34%, #fffaf2, #f4f1ea 42%, #d7d0c4 78%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  touch-action: none;
+}
+
+.masse-pad::after {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 1px dashed rgba(28, 25, 22, 0.35);
+  border-radius: 50%;
+}
+
+.masse-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  background: #e10600;
+  box-shadow: 0 0 0 6px rgba(225, 6, 0, 0.28);
+  pointer-events: none;
+}
+
+.masse-readout {
+  position: absolute;
+  z-index: 4;
+  top: calc(108px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(12, 13, 16, 0.88);
+  color: #f4f1ea;
+  font: 11px/1.45 ui-monospace, sfmono-regular, menlo, consolas, monospace;
   pointer-events: none;
   white-space: pre;
 }

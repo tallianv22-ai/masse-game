@@ -1,5 +1,8 @@
 import { PHYSICS } from "@/game/config/physics";
 import { TABLE } from "@/game/config/table";
+import { TRAJECTORY } from "@/game/config/trajectory";
+import { publishBallSpeed } from "@/game/cue/masse-session";
+import { advanceHorizontalMotion, strikeMotion, type HorizontalMotion } from "@/game/physics/shot-motion";
 import { Body, ContactMaterial, Cylinder, Material, SAPBroadphase, Sphere, Vec3, World } from "cannon-es";
 import {
   CylinderGeometry,
@@ -7,26 +10,16 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
-  PerspectiveCamera,
-  Plane,
-  Raycaster,
   RingGeometry,
   Scene,
   SphereGeometry,
-  Vector2,
-  Vector3,
 } from "three";
-
-const _ray = new Raycaster();
-const _ndc = new Vector2();
-const _hit = new Vector3();
-const _plane = new Plane(new Vector3(0, 1, 0), -PHYSICS.surfaceY);
 
 /**
  * Invisible felt disc and a seamless circular rail, plus one test ball.
  * The imported table mesh is never added to the physics world.
  */
-export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canvas: HTMLCanvasElement) {
+export function createTablePhysics(scene: Scene, _camera: unknown, _canvas: unknown) {
   const world = new World({ gravity: new Vec3(0, PHYSICS.gravity, 0) });
   world.broadphase = new SAPBroadphase(world);
   world.allowSleep = true;
@@ -35,7 +28,7 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
   const ballMaterial = new Material("ball");
   world.addContactMaterial(
     new ContactMaterial(ballMaterial, feltMaterial, {
-      friction: PHYSICS.feltFriction,
+      friction: 0,
       restitution: PHYSICS.feltRestitution,
     }),
   );
@@ -61,10 +54,8 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
   ball.addShape(new Sphere(PHYSICS.ballRadius));
   world.addBody(ball);
 
-  const ballMesh = new Mesh(
-    new SphereGeometry(PHYSICS.ballRadius, 32, 24),
-    new MeshStandardMaterial({ color: "#f4f1ea", roughness: 0.32, metalness: 0.02 }),
-  );
+  const ballMaterialMesh = new MeshStandardMaterial({ color: "#f4f1ea", roughness: 0.32, metalness: 0.02 });
+  const ballMesh = new Mesh(new SphereGeometry(PHYSICS.ballRadius, 32, 24), ballMaterialMesh);
   ballMesh.name = "TestBall";
   ballMesh.castShadow = true;
   ballMesh.receiveShadow = true;
@@ -74,7 +65,21 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
   scene.add(guides);
 
   let onActive = () => {};
-  let tap: { id: number; x: number; y: number; moved: boolean } | null = null;
+  let masseSpin = 0;
+  let masseAge = 0;
+  let longSpin = 0;
+  let turned = 0;
+  const motion: HorizontalMotion = {
+    vx: 0,
+    vz: 0,
+    wx: 0,
+    wz: 0,
+    wy: 0,
+    masseSpin: 0,
+    longSpin: 0,
+    turned: 0,
+    masseAge: 0,
+  };
 
   function syncMesh() {
     ballMesh.position.set(ball.position.x, ball.position.y, ball.position.z);
@@ -89,21 +94,57 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
     if (radius <= limit || radius < 1e-8) return;
     const nx = x / radius;
     const nz = z / radius;
-    ball.position.x = TABLE.centerX + nx * limit;
-    ball.position.z = TABLE.centerZ + nz * limit;
+    ball.position.x = TABLE.centerX + nx * (limit - 0.002);
+    ball.position.z = TABLE.centerZ + nz * (limit - 0.002);
     const outward = ball.velocity.x * nx + ball.velocity.z * nz;
-    if (outward > 0) {
-      const bounce = 1 + PHYSICS.railRestitution;
-      ball.velocity.x -= bounce * outward * nx;
-      ball.velocity.z -= bounce * outward * nz;
+    if (outward > 0.05) {
+      const reflected = Math.max(0, PHYSICS.railRestitution * outward - PHYSICS.railLoss);
+      ball.velocity.x -= outward * nx;
+      ball.velocity.z -= outward * nz;
+      ball.velocity.x -= reflected * nx;
+      ball.velocity.z -= reflected * nz;
       const tx = -nz;
       const tz = nx;
       const tangent = ball.velocity.x * tx + ball.velocity.z * tz;
-      ball.velocity.x -= tangent * PHYSICS.railFriction * tx;
-      ball.velocity.z -= tangent * PHYSICS.railFriction * tz;
-      ball.angularVelocity.scale(1 - PHYSICS.railFriction, ball.angularVelocity);
+      const kept = tangent * (1 - PHYSICS.railFriction);
+      ball.velocity.x += (kept - tangent) * tx;
+      ball.velocity.z += (kept - tangent) * tz;
+      const r = PHYSICS.ballRadius;
+      ball.angularVelocity.x = (ball.velocity.z / r) * 0.85;
+      ball.angularVelocity.z = (-ball.velocity.x / r) * 0.85;
+      ball.wakeUp();
+      return;
     }
-    ball.wakeUp();
+    if (outward > 0) {
+      ball.velocity.x -= outward * nx;
+      ball.velocity.z -= outward * nz;
+    }
+  }
+
+  function rollAndCurve(dt: number) {
+    let left = dt;
+    const step = TRAJECTORY.trajectorySimulationStep;
+    while (left > 1e-6) {
+      const slice = Math.min(step, left);
+      motion.vx = ball.velocity.x;
+      motion.vz = ball.velocity.z;
+      motion.wx = ball.angularVelocity.x;
+      motion.wz = ball.angularVelocity.z;
+      motion.wy = ball.angularVelocity.y;
+      motion.masseSpin = masseSpin;
+      motion.masseAge = masseAge;
+      motion.longSpin = longSpin;
+      motion.turned = turned;
+      advanceHorizontalMotion(motion, slice);
+      ball.velocity.x = motion.vx;
+      ball.velocity.z = motion.vz;
+      ball.angularVelocity.set(motion.wx, motion.wy, motion.wz);
+      masseSpin = motion.masseSpin;
+      masseAge = motion.masseAge;
+      longSpin = motion.longSpin;
+      turned = motion.turned;
+      left -= slice;
+    }
   }
 
   function keepOnFelt() {
@@ -120,19 +161,27 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
 
   function moving() {
     return (
-      ball.velocity.lengthSquared() > 0.0008 || ball.angularVelocity.lengthSquared() > 0.02
+      ball.velocity.lengthSquared() > PHYSICS.stopSpeed * PHYSICS.stopSpeed ||
+      ball.angularVelocity.lengthSquared() > 0.04
     );
   }
 
-  function launch(dirX: number, dirZ: number) {
+  function strike(
+    dirX: number,
+    dirZ: number,
+    speed: number,
+    contact?: { x: number; y: number } | null,
+  ) {
     const length = Math.hypot(dirX, dirZ);
-    if (length < 1e-5) return;
-    const nx = dirX / length;
-    const nz = dirZ / length;
-    const speed = PHYSICS.launchSpeed;
+    if (length < 1e-5 || speed <= 0) return;
+    const shot = strikeMotion(dirX, dirZ, speed, contact ?? null);
     ball.wakeUp();
-    ball.velocity.set(nx * speed, 0, nz * speed);
-    ball.angularVelocity.set((-nz * speed) / PHYSICS.ballRadius, 0, (nx * speed) / PHYSICS.ballRadius);
+    ball.velocity.set(shot.vx, 0, shot.vz);
+    ball.angularVelocity.set(shot.wx, shot.wy, shot.wz);
+    masseSpin = shot.masseSpin;
+    longSpin = shot.longSpin;
+    turned = 0;
+    masseAge = 0;
     onActive();
   }
 
@@ -141,6 +190,10 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
     ball.velocity.set(0, 0, 0);
     ball.angularVelocity.set(0, 0, 0);
     ball.quaternion.set(0, 0, 0, 1);
+    masseSpin = 0;
+    longSpin = 0;
+    turned = 0;
+    masseAge = 0;
     syncMesh();
     onActive();
   }
@@ -151,66 +204,12 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
     return guides.visible;
   }
 
-  function pointOnFelt(clientX: number, clientY: number) {
-    const rect = canvas.getBoundingClientRect();
-    _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    _ray.setFromCamera(_ndc, camera);
-    if (!_ray.ray.intersectPlane(_plane, _hit)) return null;
-    const x = _hit.x - TABLE.centerX;
-    const z = _hit.z - TABLE.centerZ;
-    if (Math.hypot(x, z) > PHYSICS.playingRadius) return null;
-    return { x: _hit.x, z: _hit.z };
-  }
-
-  function onPointerDown(event: PointerEvent) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (tap) {
-      if (event.pointerType === "touch") tap = null;
-      return;
-    }
-    tap = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
-  }
-
-  function onPointerMove(event: PointerEvent) {
-    if (!tap || tap.id !== event.pointerId) return;
-    if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 28) tap.moved = true;
-  }
-
-  function onPointerUp(event: PointerEvent) {
-    if (!tap || tap.id !== event.pointerId) return;
-    const start = tap;
-    tap = null;
-    if (start.moved) return;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 28) return;
-    const hit = pointOnFelt(event.clientX, event.clientY);
-    if (!hit) return;
-    launch(hit.x - ball.position.x, hit.z - ball.position.z);
-  }
-
-  function onPointerCancel() {
-    tap = null;
-  }
-
   function onKeyDown(event: KeyboardEvent) {
     if (event.repeat) return;
-    if (event.code === "KeyC") {
-      toggleColliders();
-      return;
-    }
-    if (event.code === "KeyR") {
-      resetBall();
-      return;
-    }
-    if (event.code !== "KeyL") return;
-    event.preventDefault();
-    launch(1, 0);
+    if (event.code === "KeyC") toggleColliders();
+    else if (event.code === "KeyR") resetBall();
   }
 
-  canvas.addEventListener("pointerdown", onPointerDown);
-  canvas.addEventListener("pointermove", onPointerMove);
-  canvas.addEventListener("pointerup", onPointerUp);
-  canvas.addEventListener("pointercancel", onPointerCancel);
   window.addEventListener("keydown", onKeyDown);
 
   syncMesh();
@@ -222,18 +221,27 @@ export function createTablePhysics(scene: Scene, camera: PerspectiveCamera, canv
     resetBall,
     toggleColliders,
     collidersVisible: () => guides.visible,
+    ballPosition() {
+      return { x: ball.position.x, y: ball.position.y, z: ball.position.z };
+    },
+    ballSpeed() {
+      return Math.hypot(ball.velocity.x, ball.velocity.z);
+    },
+    strike,
+    setTargeted(on: boolean) {
+      ballMaterialMesh.emissive.set(on ? "#6d5a30" : "#000000");
+      ballMaterialMesh.emissiveIntensity = on ? 0.45 : 0;
+    },
     step(dt: number) {
       world.step(1 / 60, dt, 4);
+      rollAndCurve(dt);
       containOnRail();
       keepOnFelt();
       syncMesh();
+      publishBallSpeed(Math.hypot(ball.velocity.x, ball.velocity.z));
       return moving();
     },
     dispose() {
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", onPointerUp);
-      canvas.removeEventListener("pointercancel", onPointerCancel);
       window.removeEventListener("keydown", onKeyDown);
       world.removeBody(ball);
       world.removeBody(felt);
